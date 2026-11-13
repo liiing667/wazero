@@ -63,6 +63,11 @@ type MemoryInstance struct {
 	// ownerModuleEngine is the module engine that owns this memory instance.
 	ownerModuleEngine ModuleEngine
 
+	// quota is the runtime-level total memory quota shared by all live
+	// modules, or nil when no limit is configured. It is nil on imported
+	// memories, whose pages are accounted for by the owning module.
+	quota *MemoryQuota
+
 	expBuffer experimental.LinearMemory
 }
 
@@ -241,7 +246,24 @@ func (m *MemoryInstance) Grow(delta uint32) (result uint32, ok bool) {
 	newPages := currentPages + delta
 	if newPages > m.Max || int32(delta) < 0 {
 		return 0, false
-	} else if m.expBuffer != nil {
+	}
+
+	// Reserve the additional pages against the runtime-level total memory
+	// quota before touching the backing buffer. If the growth fails for any
+	// reason below, the reservation is rolled back so the quota stays
+	// consistent with the memory's actual size.
+	if m.quota != nil && !m.quota.TryReserve(delta) {
+		return 0, false
+	}
+
+	grew := false
+	defer func() {
+		if !grew && m.quota != nil {
+			m.quota.Release(delta)
+		}
+	}()
+
+	if m.expBuffer != nil {
 		buffer := m.expBuffer.Reallocate(MemoryPagesToBytesNum(newPages))
 		if buffer == nil {
 			// Allocator failed to grow.
@@ -276,6 +298,7 @@ func (m *MemoryInstance) Grow(delta uint32) (result uint32, ok bool) {
 			m.Buffer = m.Buffer[:MemoryPagesToBytesNum(newPages)]
 		}
 	}
+	grew = true
 	m.ownerModuleEngine.MemoryGrown()
 	return currentPages, true
 }

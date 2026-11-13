@@ -779,6 +779,11 @@ func (m *ModuleInstance) buildMemory(module *Module, allocator experimental.Memo
 	memSec := module.MemorySection
 	if memSec != nil {
 		m.MemoryInstance = NewMemoryInstance(memSec, allocator, m.Engine)
+		// Only a memory defined by this module consumes quota; imported
+		// memories are owned and accounted for by the exporting module.
+		if m.s != nil {
+			m.MemoryInstance.quota = m.s.memoryQuota
+		}
 		m.MemoryInstance.definition = &module.MemoryDefinitionSection[0]
 	}
 }

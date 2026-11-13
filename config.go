@@ -64,6 +64,25 @@ type RuntimeConfig interface {
 	// See https://www.w3.org/TR/2019/REC-wasm-core-1-20191205/#grow-mem
 	WithMemoryLimitPages(memoryLimitPages uint32) RuntimeConfig
 
+	// WithTotalMemoryLimitPages sets a runtime-level cap on the combined
+	// number of linear memory pages that all live modules may reserve. The
+	// limit is shared across every module instantiated by the runtime: each
+	// instantiation reserves its minimum pages and each memory.grow reserves
+	// its additional pages against the same counter, while closing a module
+	// releases its pages so the quota becomes reusable.
+	//
+	// A value of zero (the default) disables the limit. When set,
+	// instantiating a module whose minimum would exceed the remaining quota
+	// fails without allocating, returning an error wrapping
+	// wazero.ErrRuntimeMemoryQuotaExceeded, and any partially created
+	// resources are rolled back. A memory.grow that would exceed the quota
+	// fails per the WebAssembly semantics (returns -1 to the guest) without
+	// changing the memory or the counter.
+	//
+	// This is independent of WithMemoryLimitPages, which bounds a single
+	// memory instance; both limits remain in effect.
+	WithTotalMemoryLimitPages(totalMemoryLimitPages uint32) RuntimeConfig
+
 	// WithMemoryCapacityFromMax eagerly allocates max memory, unless max is
 	// not defined. The default is false, which means minimum memory is
 	// allocated and any call to grow memory results in re-allocations.
@@ -183,6 +202,7 @@ type newEngine func(context.Context, api.CoreFeatures, filecache.Cache) wasm.Eng
 type runtimeConfig struct {
 	enabledFeatures       api.CoreFeatures
 	memoryLimitPages      uint32
+	totalMemoryLimitPages uint32
 	memoryCapacityFromMax bool
 	engineKind            engineKind
 	dwarfDisabled         bool // negative as defaults to enabled
@@ -273,6 +293,13 @@ func (c *runtimeConfig) WithMemoryLimitPages(memoryLimitPages uint32) RuntimeCon
 		panic(fmt.Errorf("memoryLimitPages invalid: %d > %d", memoryLimitPages, wasm.MemoryLimitPages))
 	}
 	ret.memoryLimitPages = memoryLimitPages
+	return ret
+}
+
+// WithTotalMemoryLimitPages implements RuntimeConfig.WithTotalMemoryLimitPages
+func (c *runtimeConfig) WithTotalMemoryLimitPages(totalMemoryLimitPages uint32) RuntimeConfig {
+	ret := c.clone()
+	ret.totalMemoryLimitPages = totalMemoryLimitPages
 	return ret
 }
 

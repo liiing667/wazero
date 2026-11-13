@@ -156,6 +156,11 @@ func (m *ModuleInstance) ensureResourcesClosed(ctx context.Context) (err error) 
 	}
 
 	if mem := m.MemoryInstance; mem != nil && mem.ownerModuleEngine == m.Engine {
+		// Return every reserved page (initial size plus all grows) so the
+		// runtime-level quota can be reused by subsequent instantiations.
+		if mem.quota != nil {
+			mem.quota.Release(mem.Pages())
+		}
 		if mem.expBuffer != nil {
 			mem.expBuffer.Free()
 			mem.expBuffer = nil

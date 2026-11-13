@@ -178,11 +178,15 @@ func NewRuntimeWithConfig(ctx context.Context, rConfig RuntimeConfig) Runtime {
 		engine = configEngine(ctx, config.enabledFeatures, nil)
 	}
 	store := wasm.NewStore(config.enabledFeatures, engine)
+	if config.totalMemoryLimitPages != 0 {
+		store.SetMemoryQuota(wasm.NewMemoryQuota(config.totalMemoryLimitPages))
+	}
 	return &runtime{
 		cache:                 cacheImpl,
 		store:                 store,
 		enabledFeatures:       config.enabledFeatures,
 		memoryLimitPages:      config.memoryLimitPages,
+		totalMemoryLimitPages: config.totalMemoryLimitPages,
 		memoryCapacityFromMax: config.memoryCapacityFromMax,
 		dwarfDisabled:         config.dwarfDisabled,
 		storeCustomSections:   config.storeCustomSections,
@@ -196,6 +200,7 @@ type runtime struct {
 	cache                 *cache
 	enabledFeatures       api.CoreFeatures
 	memoryLimitPages      uint32
+	totalMemoryLimitPages uint32
 	memoryCapacityFromMax bool
 	dwarfDisabled         bool
 	storeCustomSections   bool

@@ -37,6 +37,9 @@ var (
 	ErrRuntimeUncaughtException = New("uncaught exception")
 	// ErrRuntimeNullReference indicates a null reference was used where a non-null reference was expected.
 	ErrRuntimeNullReference = New("null reference")
+	// ErrRuntimeMemoryQuotaExceeded indicates that instantiating a module or
+	// growing a memory would exceed the runtime-level total memory quota.
+	ErrRuntimeMemoryQuotaExceeded = New("memory quota exceeded")
 )
 
 // Error is returned by a wasm.Engine during the execution of Wasm functions, and they indicate that the Wasm runtime

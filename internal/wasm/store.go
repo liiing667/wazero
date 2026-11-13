@@ -12,6 +12,7 @@ import (
 	"github.com/tetratelabs/wazero/internal/expctxkeys"
 	"github.com/tetratelabs/wazero/internal/internalapi"
 	internalsys "github.com/tetratelabs/wazero/internal/sys"
+	"github.com/tetratelabs/wazero/internal/wasmruntime"
 	"github.com/tetratelabs/wazero/sys"
 )
 
@@ -57,6 +58,11 @@ type (
 		// functionMaxTypes represents the limit on the number of function types in a store.
 		// Note: this is fixed to 2^27 but have this a field for testability.
 		functionMaxTypes uint32
+
+		// memoryQuota, when non-nil with a non-zero limit, caps the total number
+		// of linear memory pages that can be reserved by all live modules in
+		// this Store. It is shared across every instantiated module.
+		memoryQuota *MemoryQuota
 
 		// mux is used to guard the fields from concurrent access.
 		mux sync.RWMutex
@@ -309,6 +315,18 @@ func NewStore(enabledFeatures api.CoreFeatures, engine Engine) *Store {
 	}
 }
 
+// SetMemoryQuota attaches a runtime-level total memory quota to the store.
+// It must be called before any module is instantiated. Passing nil removes
+// the quota.
+func (s *Store) SetMemoryQuota(quota *MemoryQuota) {
+	s.memoryQuota = quota
+}
+
+// MemoryQuota returns the store's total memory quota, or nil when disabled.
+func (s *Store) MemoryQuota() *MemoryQuota {
+	return s.memoryQuota
+}
+
 // Instantiate uses name instead of the Module.NameSection ModuleName as it allows instantiating the same module under
 // different names safely and concurrently.
 //
@@ -370,6 +388,23 @@ func (s *Store) instantiate(
 
 	m.buildGlobals(module, m.Engine.FunctionInstanceReference)
 	m.buildTags(module)
+	// Reserve the module's initial linear memory against the runtime-level
+	// total memory quota before allocating anything. Imported memories are
+	// owned (and already accounted for) by another module, so only a memory
+	// defined by this module consumes additional quota. On any failure below,
+	// the deferred release hands the reservation back to the quota.
+	if module.MemorySection != nil && s.memoryQuota != nil {
+		if !s.memoryQuota.TryReserve(module.MemorySection.Min) {
+			return nil, fmt.Errorf("%w: module[%s] requires %d pages (limit %d, already used %d)",
+				wasmruntime.ErrRuntimeMemoryQuotaExceeded, name, module.MemorySection.Min,
+				s.memoryQuota.LimitPages(), s.memoryQuota.UsedPages())
+		}
+		defer func() {
+			if err != nil {
+				s.memoryQuota.Release(module.MemorySection.Min)
+			}
+		}()
+	}
 	m.buildMemory(module, allocator)
 	m.Exports = module.Exports
 	for _, exp := range m.Exports {
